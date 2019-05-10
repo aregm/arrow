@@ -171,6 +171,8 @@ static|shared (default shared)")
 
   option(ARROW_TENSORFLOW "Build Arrow with TensorFlow support enabled" OFF)
 
+  option(ARROW_TBB "Build the Arrow TBB-based threading" ON)
+
   option(ARROW_JEMALLOC "Build the Arrow jemalloc-based allocator" ON)
 
   option(ARROW_HDFS "Build the Arrow HDFS bridge" ON)
@@ -910,6 +912,10 @@ endif(ARROW_JEMALLOC)
 if(THREADS_FOUND)
   list(APPEND ARROW_SYSTEM_LINK_LIBS Threads::Threads)
 endif()
+
+if(ARROW_TBB)
+  list(APPEND ARROW_SYSTEM_LINK_LIBS TBB::tbb TBB::tbbmalloc)
+endif(ARROW_TBB)
 
 if(NOT WIN32 AND NOT APPLE)
   # Pass -lrt on Linux only
