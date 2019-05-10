@@ -56,7 +56,8 @@ set(ARROW_THIRDPARTY_DEPENDENCIES
     Snappy
     Thrift
     ZLIB
-    ZSTD)
+    ZSTD
+    TBB)
 
 message(STATUS "Using ${ARROW_DEPENDENCY_SOURCE} approach to find dependencies")
 
@@ -2336,6 +2337,19 @@ if(ARROW_ORC)
 
   if(ORC_VENDORED)
     add_dependencies(orc_static orc_ep)
+  endif()
+endif()
+
+
+# ----------------------------------------------------------------------
+# TBB
+if(ARROW_TBB)
+  find_package(TBB QUIET)
+  if(NOT TBB_FOUND)
+    message("TBB is not available in the envirinment, downloading")
+    include("${CMAKE_SOURCE_DIR}/cmake_modules/TBBGet.cmake")
+    tbb_get(TBB_ROOT tbb_root SAVE_TO ${THIRDPARTY_DIR} CONFIG_DIR TBB_DIR)
+    find_package(TBB REQUIRED)
   endif()
 endif()
 
