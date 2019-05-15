@@ -29,23 +29,60 @@
 #include "arrow/util/io-util.h"
 #include "arrow/util/logging.h"
 
+#define TBB_PREVIEW_LOCAL_OBSERVER 1
 #include <tbb/tbb.h>
+
+#if TBB_INTERFACE_VERSION >= 9106
+#define TSI_INIT(count) tbb::task_scheduler_init(count)
+#define TSI_TERMINATE(tsi) tsi->blocking_terminate(std::nothrow)
+#else
+#if __TBB_SUPPORTS_WORKERS_WAITING_IN_TERMINATE
+#define TSI_INIT(count) tbb::task_scheduler_init(count, 0, /*blocking termination*/true)
+#define TSI_TERMINATE(tsi) tsi->terminate()
+#else
+#error This version of TBB does not support blocking terminate
+#endif
+#endif
 
 namespace arrow {
 namespace internal {
 
-struct ThreadPool::State {
-  State(int capacity = 0) : desired_capacity_(capacity), tbb_arena_(capacity) {}
+struct ThreadPool::State : tbb::task_arena, tbb::task_scheduler_observer {
+  State(int capacity = 0)
+  : tbb::task_arena(capacity)
+  , tbb::task_scheduler_observer((tbb::task_arena&)*this)
+  , desired_capacity_(capacity)
+  , active_workers_task_(new( tbb::task::allocate_root() ) tbb::empty_task) {
+    DCHECK(active_workers_task_);
+    active_workers_task_->set_ref_count(1);
+    observe(true);
+  }
+
+  ~State() {
+    observe(false);
+    // no notifications accessing this instance are allowed even if there are still threads in arena
+    active_workers_task_->set_ref_count(0); // reset to avoid assert
+    tbb::task::destroy(*active_workers_task_);
+  }
+
+
+  void on_scheduler_entry( bool /*worker*/ ) {
+    active_workers_task_->increment_ref_count();
+  }
+  void on_scheduler_exit( bool /*worker*/ ) {
+    active_workers_task_->decrement_ref_count();
+  }
 
   // Desired number of threads
   int desired_capacity_;
-  tbb::task_arena tbb_arena_;
+  // task object for counting the number of active threads
+  tbb::empty_task *active_workers_task_;
 };
 
 ThreadPool::ThreadPool()
-    : sp_state_(std::make_shared<ThreadPool::State>()),
-      state_(sp_state_.get()),
-      shutdown_on_destroy_(true) {
+  : sp_state_(std::make_shared<ThreadPool::State>()),
+    state_(sp_state_.get()),
+    shutdown_on_destroy_(true) {
 #ifndef _WIN32
   pid_ = getpid();
 #endif
@@ -78,7 +115,7 @@ void ThreadPool::ProtectAgainstFork() {
 
 Status ThreadPool::SetCapacity(int threads) {
   if (threads <= 0) {
-	return Status::Invalid("ThreadPool capacity must be > 0");
+    return Status::Invalid("ThreadPool capacity must be > 0");
   }
   ProtectAgainstFork();
   auto new_state = std::make_shared<ThreadPool::State>(threads);
@@ -94,12 +131,28 @@ int ThreadPool::GetCapacity() {
 
 int ThreadPool::GetActualCapacity() {
   ProtectAgainstFork();
-  return static_cast<int>(state_->tbb_arena_.max_concurrency());
+  return static_cast<int>(state_->max_concurrency());
 }
 
 Status ThreadPool::Shutdown(bool wait) {
   ProtectAgainstFork();
-  state_->tbb_arena_.terminate();
+  if(state_->is_active()) {
+    tbb::empty_task *t = state_->active_workers_task_;
+    //printf("Shutting down with %d threads\n", int(t->ref_count()-1));
+    if(wait) {
+      t->increment_ref_count(); // wait for low-priority task to complete
+      // warning: if there are any other low-priority tasks in the arena, it is not guaranteed they are waited
+      // this is also not the most efficient implementation from TBB point of view, so better avoid relying on it for performance
+      state_->enqueue([t]{t->decrement_ref_count();}, tbb::priority_low);
+      while(t->ref_count() > 1)
+        state_->execute([t]{
+          t->decrement_ref_count(); // the waiting thread should not account for itself while waiting
+          t->wait_for_all();       // cooperative waiting
+          t->increment_ref_count();
+        });
+    }
+    state_->terminate();
+  }
   return Status::OK();
 }
 
@@ -107,12 +160,12 @@ void ThreadPool::CollectFinishedWorkersUnlocked() {
 }
 
 void ThreadPool::LaunchWorkersUnlocked(int threads) {
-  state_->tbb_arena_.enqueue([](){});
+  state_->enqueue([](){});
 }
 
 Status ThreadPool::SpawnReal(std::function<void()> task) {
   ProtectAgainstFork();
-  state_->tbb_arena_.enqueue(std::move(task));
+  state_->enqueue(std::move(task));
   return Status::OK();
 }
 

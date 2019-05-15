@@ -2400,6 +2400,7 @@ endif()
 # ----------------------------------------------------------------------
 # TBB
 if(ARROW_TBB)
+  add_definitions("-DARROW_TBB")
   find_package(TBB QUIET)
   if(NOT TBB_FOUND)
     message("TBB is not available in the envirinment, downloading")
