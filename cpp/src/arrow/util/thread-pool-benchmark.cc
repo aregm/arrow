@@ -172,7 +172,7 @@ static void WorkloadCost_Customize(benchmark::internal::Benchmark* b) {
 
 static void ThreadPoolSpawn_Customize(benchmark::internal::Benchmark* b) {
   for (const int32_t w : kWorkloadSizes) {
-    for (const int nthreads : {1, 2, 4, 8}) {
+    for (const int nthreads : {1, 2, 4, 6, 8, 12, 16, 24}) {
       b->Args({nthreads, w});
     }
   }

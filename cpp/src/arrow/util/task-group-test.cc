@@ -111,6 +111,7 @@ void TestTaskGroupErrors(std::shared_ptr<TaskGroup> task_group) {
   ASSERT_RAISES(Invalid, task_group->Finish());
 }
 
+#if !defined(ARROW_TBB)
 // Check TaskGroup behaviour with a bunch of all-successful tasks and task groups
 void TestTaskSubGroupsSuccess(std::shared_ptr<TaskGroup> task_group) {
   const int NTASKS = 50;
@@ -185,6 +186,27 @@ void TestTaskSubGroupsErrors(std::shared_ptr<TaskGroup> task_group) {
   // Finish() is idempotent
   ASSERT_RAISES(Invalid, task_group->Finish());
 }
+TEST(SerialTaskGroup, SubGroupsSuccess) {
+  TestTaskSubGroupsSuccess(TaskGroup::MakeSerial());
+}
+
+TEST(SerialTaskGroup, SubGroupsErrors) {
+  TestTaskSubGroupsErrors(TaskGroup::MakeSerial());
+}
+TEST(ThreadedTaskGroup, SubGroupsSuccess) {
+  std::shared_ptr<ThreadPool> thread_pool;
+  ASSERT_OK(ThreadPool::Make(4, &thread_pool));
+
+  TestTaskSubGroupsSuccess(TaskGroup::MakeThreaded(thread_pool.get()));
+}
+
+TEST(ThreadedTaskGroup, SubGroupsErrors) {
+  std::shared_ptr<ThreadPool> thread_pool;
+  ASSERT_OK(ThreadPool::Make(4, &thread_pool));
+
+  TestTaskSubGroupsErrors(TaskGroup::MakeThreaded(thread_pool.get()));
+}
+#endif // !ARROW_TBB
 
 // Check TaskGroup behaviour with tasks spawning other tasks
 void TestTasksSpawnTasks(std::shared_ptr<TaskGroup> task_group) {
@@ -218,14 +240,6 @@ TEST(SerialTaskGroup, Errors) { TestTaskGroupErrors(TaskGroup::MakeSerial()); }
 
 TEST(SerialTaskGroup, TasksSpawnTasks) { TestTasksSpawnTasks(TaskGroup::MakeSerial()); }
 
-TEST(SerialTaskGroup, SubGroupsSuccess) {
-  TestTaskSubGroupsSuccess(TaskGroup::MakeSerial());
-}
-
-TEST(SerialTaskGroup, SubGroupsErrors) {
-  TestTaskSubGroupsErrors(TaskGroup::MakeSerial());
-}
-
 TEST(ThreadedTaskGroup, Success) {
   auto task_group = TaskGroup::MakeThreaded(GetCpuThreadPool());
   TestTaskGroupSuccess(task_group);
@@ -243,20 +257,6 @@ TEST(ThreadedTaskGroup, Errors) {
 TEST(ThreadedTaskGroup, TasksSpawnTasks) {
   auto task_group = TaskGroup::MakeThreaded(GetCpuThreadPool());
   TestTasksSpawnTasks(task_group);
-}
-
-TEST(ThreadedTaskGroup, SubGroupsSuccess) {
-  std::shared_ptr<ThreadPool> thread_pool;
-  ASSERT_OK(ThreadPool::Make(4, &thread_pool));
-
-  TestTaskSubGroupsSuccess(TaskGroup::MakeThreaded(thread_pool.get()));
-}
-
-TEST(ThreadedTaskGroup, SubGroupsErrors) {
-  std::shared_ptr<ThreadPool> thread_pool;
-  ASSERT_OK(ThreadPool::Make(4, &thread_pool));
-
-  TestTaskSubGroupsErrors(TaskGroup::MakeThreaded(thread_pool.get()));
 }
 
 }  // namespace internal

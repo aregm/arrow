@@ -69,8 +69,13 @@ class SerialTaskGroup : public TaskGroup {
   SerialTaskGroup* parent_ = nullptr;
 };
 
+std::shared_ptr<TaskGroup> TaskGroup::MakeSerial() {
+  return std::shared_ptr<TaskGroup>(new SerialTaskGroup);
+}
+
 ////////////////////////////////////////////////////////////////////////
 // Threaded TaskGroup implementation
+#if !defined(ARROW_TBB)
 
 class ThreadedTaskGroup : public TaskGroup {
  public:
@@ -165,13 +170,11 @@ class ThreadedTaskGroup : public TaskGroup {
   ThreadedTaskGroup* parent_ = nullptr;
 };
 
-std::shared_ptr<TaskGroup> TaskGroup::MakeSerial() {
-  return std::shared_ptr<TaskGroup>(new SerialTaskGroup);
-}
-
 std::shared_ptr<TaskGroup> TaskGroup::MakeThreaded(ThreadPool* thread_pool) {
   return std::shared_ptr<TaskGroup>(new ThreadedTaskGroup(thread_pool));
 }
+
+#endif // !ARROW_TBB
 
 }  // namespace internal
 }  // namespace arrow

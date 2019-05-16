@@ -363,7 +363,7 @@ TEST(TestGlobalThreadPool, Capacity) {
   ASSERT_GT(capacity, 0);
   ASSERT_EQ(pool->GetActualCapacity(), capacity);
   ASSERT_EQ(GetCpuThreadPoolCapacity(), capacity);
-#if 0
+#if !defined(ARROW_TBB)
   // Exercise default capacity heuristic
   ASSERT_OK(DelEnvVar("OMP_NUM_THREADS"));
   ASSERT_OK(DelEnvVar("OMP_THREAD_LIMIT"));
