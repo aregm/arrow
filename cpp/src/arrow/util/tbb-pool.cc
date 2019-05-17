@@ -231,7 +231,7 @@ class ThreadedTaskGroup : protected tbb::task_group, public TaskGroup {
     return status_;
   }
 
-  bool ok() override { return !is_canceling(); }
+  bool ok() override { return status_.ok(); }
 
   Status Finish() override {
     /*auto s =*/ wait();
@@ -257,9 +257,8 @@ protected:
   ThreadPool* thread_pool_;
   tbb::spin_mutex mutex_;
 
-  // These members use locking
-  Status status_;
-  ThreadedTaskGroup* parent_ = nullptr;
+  Status status_;  // uses lock for update
+  //ThreadedTaskGroup* parent_ = nullptr;
 };
 
 std::shared_ptr<TaskGroup> TaskGroup::MakeThreaded(ThreadPool* thread_pool) {

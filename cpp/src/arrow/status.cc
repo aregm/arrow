@@ -19,22 +19,23 @@ namespace arrow {
 
 Status::Status(StatusCode code, const std::string& msg) {
   assert(code != StatusCode::OK);
-  state_ = new State;
-  state_->code = code;
-  state_->msg = msg;
+  auto s = new State;
+  s->code = code;
+  s->msg = msg;
+  state_.store(s, std::memory_order_relaxed);
 }
 
 void Status::CopyFrom(const Status& s) {
-  delete state_;
-  if (s.state_ == nullptr) {
-    state_ = nullptr;
+  delete state_.load(std::memory_order_relaxed);
+  if (s.state_.load(std::memory_order_acquire) == nullptr) {
+    state_.store(nullptr, std::memory_order_relaxed);
   } else {
-    state_ = new State(*s.state_);
+    state_.store(new State(*s.state_), std::memory_order_relaxed);
   }
 }
 
 std::string Status::CodeAsString() const {
-  if (state_ == nullptr) {
+  if (state_.load(std::memory_order_acquire) == nullptr) {
     return "OK";
   }
 
@@ -107,7 +108,7 @@ std::string Status::ToString() const {
     return result;
   }
   result += ": ";
-  result += state_->msg;
+  result += state_.load(std::memory_order_acquire)->msg;
   return result;
 }
 

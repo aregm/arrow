@@ -19,6 +19,7 @@
 #include <iosfwd>
 #include <string>
 #include <utility>
+#include <atomic>
 
 #ifdef ARROW_EXTRA_ERROR_CONTEXT
 #include <sstream>
@@ -122,7 +123,7 @@ class ARROW_EXPORT Status {
   ~Status() noexcept {
     // ARROW-2400: On certain compilers, splitting off the slow path improves
     // performance significantly.
-    if (ARROW_PREDICT_FALSE(state_ != NULL)) {
+    if (ARROW_PREDICT_FALSE(state_.load(std::memory_order_relaxed) != NULL)) {
       DeleteState();
     }
   }
@@ -262,8 +263,8 @@ class ARROW_EXPORT Status {
                   util::StringBuilder(std::forward<Args>(args)...));
   }
 
-  /// Return true iff the status indicates success.
-  bool ok() const { return (state_ == NULLPTR); }
+  /// Return true iff the status indicates success. Thread-safe
+  bool ok() const { return (state_.load(std::memory_order_acquire) == NULLPTR); }
 
   /// Return true iff the status indicates an out-of-memory error.
   bool IsOutOfMemory() const { return code() == StatusCode::OutOfMemory; }
@@ -320,10 +321,10 @@ class ARROW_EXPORT Status {
   std::string CodeAsString() const;
 
   /// \brief Return the StatusCode value attached to this status.
-  StatusCode code() const { return ok() ? StatusCode::OK : state_->code; }
+  StatusCode code() const { return ok() ? StatusCode::OK : state_.load(std::memory_order_acquire)->code; }
 
   /// \brief Return the specific error message attached to this status.
-  std::string message() const { return ok() ? "" : state_->msg; }
+  std::string message() const { return ok() ? "" : state_.load(std::memory_order_acquire)->msg; }
 
  private:
   struct State {
@@ -332,7 +333,7 @@ class ARROW_EXPORT Status {
   };
   // OK status has a `NULL` state_.  Otherwise, `state_` points to
   // a `State` structure containing the error code and message(s)
-  State* state_;
+  std::atomic<State*> state_;
 
   void DeleteState() {
     delete state_;
@@ -348,9 +349,9 @@ static inline std::ostream& operator<<(std::ostream& os, const Status& x) {
 }
 
 void Status::MoveFrom(Status& s) {
-  delete state_;
-  state_ = s.state_;
-  s.state_ = NULLPTR;
+  delete state_.load(std::memory_order_relaxed);
+  state_.store(s.state_.load(std::memory_order_acquire), std::memory_order_relaxed);
+  s.state_.store(NULLPTR, std::memory_order_relaxed); // update requires external syncronization
 }
 
 Status::Status(const Status& s)
@@ -359,13 +360,13 @@ Status::Status(const Status& s)
 Status& Status::operator=(const Status& s) {
   // The following condition catches both aliasing (when this == &s),
   // and the common case where both s and *this are ok.
-  if (state_ != s.state_) {
+  if (state_.load(std::memory_order_relaxed) != s.state_.load(std::memory_order_relaxed)) {
     CopyFrom(s);
   }
   return *this;
 }
 
-Status::Status(Status&& s) noexcept : state_(s.state_) { s.state_ = NULLPTR; }
+Status::Status(Status&& s) noexcept : state_(s.state_.load(std::memory_order_acquire)) { s.state_.store(NULLPTR, std::memory_order_relaxed); }
 
 Status& Status::operator=(Status&& s) noexcept {
   MoveFrom(s);
