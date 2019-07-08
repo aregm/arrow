@@ -324,7 +324,8 @@ class ThreadedTableReader : public BaseTableReader {
   }
 
   Status Read(std::shared_ptr<Table>* out) {
-    task_group_ = internal::TaskGroup::MakeThreaded(thread_pool_);
+    task_group_ = internal::TaskGroup::MakeSerial();
+    auto parallel_group_ = internal::TaskGroup::MakeThreaded(thread_pool_);
     static constexpr int32_t max_num_rows = std::numeric_limits<int32_t>::max();
     Chunker chunker(parse_options_);
 
@@ -347,7 +348,7 @@ class ThreadedTableReader : public BaseTableReader {
         int64_t chunk_index = cur_block_index_;
 
         // "mutable" allows to modify captured by-copy chunk_buffer
-        task_group_->Append([=]() mutable -> Status {
+        parallel_group_->Append([=]() mutable -> Status {
           auto parser = std::make_shared<BlockParser>(pool_, parse_options_, num_cols_,
                                                       max_num_rows);
           uint32_t parsed_size = 0;
@@ -373,6 +374,7 @@ class ThreadedTableReader : public BaseTableReader {
     }
 
     // Finish all pending parallel tasks
+    RETURN_NOT_OK(parallel_group_->Finish());
     RETURN_NOT_OK(task_group_->Finish());
 
     if (eof_ && cur_size_ > 0) {
